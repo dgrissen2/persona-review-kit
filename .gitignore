@@ -1,0 +1,23 @@
+# OS / editor cruft
+.DS_Store
+*.swp
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+
+# Tooling / local state
+.serena/
+.mcp.json
+.venv/
+venv/
+
+# Review artifacts written next to source files by the codex skills
+*_codex_review.md
+*_plan_review.md
+*_strategy_review.md
+*_panel_synthesis.md

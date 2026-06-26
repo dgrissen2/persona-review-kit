@@ -1,0 +1,4 @@
+interface:
+  display_name: "Claude Review"
+  short_description: "Independent Claude Opus 4.8 review of a diff, file, or branch with tools enabled"
+  default_prompt: "Use $claude-review to run an independent Claude review of these changes."

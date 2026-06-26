@@ -1,0 +1,4 @@
+interface:
+  display_name: "Claude Plan Review"
+  short_description: "Independent Claude Opus 4.8 review of implementation plans and design docs"
+  default_prompt: "Use $claude-plan-review to stress-test this plan before implementation."

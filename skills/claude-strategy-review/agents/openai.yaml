@@ -1,0 +1,4 @@
+interface:
+  display_name: "Claude Strategy Review"
+  short_description: "Independent Claude Opus 4.8 adversarial logic review with optional persona lenses"
+  default_prompt: "Use $claude-strategy-review to stress-test this strategy and ask which persona lenses to include."

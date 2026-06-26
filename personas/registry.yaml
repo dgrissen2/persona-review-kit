@@ -1,0 +1,75 @@
+# persona-review-kit persona registry
+#
+# HUMAN-FACING MANIFEST ONLY. The resolver (persona_registry.py) does NOT read this file —
+# it discovers personas from each .md file's YAML frontmatter. This list is a convenient
+# at-a-glance inventory; the canonical, always-current inventory (including every alias) is:
+#     python3 ../skills/persona-registry/scripts/persona_registry.py --list
+# Keep this file in sync when adding/removing a persona, but treat the frontmatter as truth.
+#
+# Paths are relative to this file (the personas/ directory).
+personas:
+  - id: architect
+    name: "Architect"
+    domain: engineering
+    path: engineering/architect.md
+    aliases: [architecture, systems-architect]
+  - id: cto
+    name: "CTO"
+    domain: engineering
+    path: engineering/cto.md
+    aliases: [engineering-leader, technical-executive]
+  - id: red-team
+    name: "Red Team"
+    domain: engineering
+    path: engineering/red-team.md
+    aliases: [redteam, adversarial, security]
+  - id: software-architect
+    name: "Software Architect (Production Systems)"
+    domain: engineering
+    path: engineering/software-architect.md
+    aliases: [software_architect, systems-architect, platform-architect]
+  - id: junior-engineer
+    name: "Junior Engineer (Honest Reader)"
+    domain: engineering
+    path: engineering/junior-engineer.md
+    aliases: [junior_engineer, junior, honest-reader]
+  - id: cio
+    name: "Chief Investment Officer (Decision Authority)"
+    domain: strategy
+    path: strategy/cio.md
+    aliases: [chief-investment-officer, investment-officer]
+  - id: portfolio-manager
+    name: "Institutional Portfolio Manager (Risk & Governance)"
+    domain: strategy
+    path: strategy/portfolio-manager.md
+    aliases: [pm, portfolio_manager, risk-governance]
+  - id: quant
+    name: "Senior Quant Researcher"
+    domain: strategy
+    path: strategy/quant.md
+    aliases: [senior-quant, quant-researcher, quantitative-researcher]
+  - id: arbiter
+    name: "Arbiter (Decision Reconciler)"
+    domain: strategy
+    path: strategy/arbiter.md
+    aliases: [decision-reconciler, reconciler]
+  - id: charlie-mcelligott
+    name: "Charlie McElligott"
+    domain: market
+    path: market/charlie-mcelligott.md
+    aliases: [charlie, charlie_mcelligott, mceligott, positioning]
+  - id: degen-wsb-trader
+    name: "Degen / WSB Retail Trader"
+    domain: market
+    path: market/degen-wsb-trader.md
+    aliases: [degen, wsb, wsb-degen, retail-degen, yolo-trader]
+  - id: language-learning-expert
+    name: "Language Learning Expert (Italian / CEFR)"
+    domain: education
+    path: education/language-learning-expert.md
+    aliases: [language-learning, cefr, b1]
+  - id: richard-feynman
+    name: "Richard Feynman-Style Explainer"
+    domain: education
+    path: education/richard-feynman.md
+    aliases: [feynman, richard-feynman, feynman-explainer, clear-explainer, explain-like-feynman, smart-12]
