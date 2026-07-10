@@ -1,11 +1,11 @@
 ---
 name: codex-strategy-review
-description: "Run an independent Codex adversarial strategy and logic review using GPT-5.5 with xhigh reasoning. Generic by default; flexible for optional persona lenses resolved from the persona registry. Use for strategy docs, research conclusions, optimizer proposals, risk frameworks, decision memos, or arguments that need stress-testing."
+description: "Run an independent Codex adversarial strategy and logic review using GPT-5.6 with xhigh reasoning. Generic by default; flexible for optional persona lenses resolved from the persona registry. Use for strategy docs, research conclusions, optimizer proposals, risk frameworks, decision memos, or arguments that need stress-testing."
 ---
 
 # Codex Strategy Review
 
-Independent adversarial logic review using Codex (`gpt-5.5`,
+Independent adversarial logic review using Codex (`gpt-5.6`,
 `model_reasoning_effort=xhigh`). This skill is generic by default and flexible for different personas.
 
 > Requires the `codex` CLI (`npm install -g @openai/codex`, then `codex login`).
@@ -44,7 +44,7 @@ python3 ~/.claude/skills/persona-registry/scripts/persona_registry.py --list
 
 ## Model & reasoning effort
 
-Defaults: **model `gpt-5.5`**, **reasoning effort `xhigh`**. To change (no reinstall): pass `--model` /
+Defaults: **model `gpt-5.6`**, **reasoning effort `xhigh`**. To change (no reinstall): pass `--model` /
 `--effort`, or edit `DEFAULT_MODEL` / `DEFAULT_EFFORT` at the top of the script.
 
 ## Workflow

@@ -7,13 +7,13 @@
 #   codex_review.sh path/to/file.py    # Review specific file
 #
 # Environment:
-#   CODEX_MODEL        Override model (default: gpt-5.5)
+#   CODEX_MODEL        Override model (default: gpt-5.6)
 #   CODEX_EFFORT       Override reasoning effort (default: xhigh)
 #   CODEX_MAX_FILES    Max files before truncating to diff-only (default: 15)
 
 set -euo pipefail
 
-MODEL="${CODEX_MODEL:-gpt-5.5}"
+MODEL="${CODEX_MODEL:-gpt-5.6}"
 EFFORT="${CODEX_EFFORT:-xhigh}"
 MAX_FILES="${CODEX_MAX_FILES:-15}"
 INTENT="${CODEX_INTENT:-}"      # optional: what this change is trying to achieve
