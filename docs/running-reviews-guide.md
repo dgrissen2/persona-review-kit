@@ -34,7 +34,7 @@ python3 ~/.claude/skills/codex-strategy-review/scripts/codex_strategy_review.py 
   --personas quant,cio
 ```
 
-Codex defaults: model `gpt-5.5`, effort `xhigh`. Override with `--model` / `--effort`, or the
+Codex defaults: model `gpt-5.6`, effort `xhigh`. Override with `--model` / `--effort`, or the
 `CODEX_MODEL` / `CODEX_EFFORT` env vars (for `codex_review.sh`). Per-invocation timeout:
 `CODEX_TIMEOUT` (default 300s).
 

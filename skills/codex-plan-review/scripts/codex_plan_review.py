@@ -46,7 +46,7 @@ if _registry_dir is not None:
 from persona_registry import Persona, parse_tokens, resolve_personas  # noqa: E402
 
 
-DEFAULT_MODEL = "gpt-5.5"
+DEFAULT_MODEL = "gpt-5.6"
 DEFAULT_EFFORT = "xhigh"
 
 

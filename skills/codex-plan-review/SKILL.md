@@ -1,11 +1,11 @@
 ---
 name: codex-plan-review
-description: "Run an independent Codex plan review using GPT-5.5 with xhigh reasoning. Use for milestone roadmaps, implementation plans, architecture/design docs, and specs before implementation. Generic by default; flexible for optional persona lenses resolved from the persona registry."
+description: "Run an independent Codex plan review using GPT-5.6 with xhigh reasoning. Use for milestone roadmaps, implementation plans, architecture/design docs, and specs before implementation. Generic by default; flexible for optional persona lenses resolved from the persona registry."
 ---
 
 # Codex Plan Review
 
-Independent plan review using Codex (`gpt-5.5`, `model_reasoning_effort=xhigh`).
+Independent plan review using Codex (`gpt-5.6`, `model_reasoning_effort=xhigh`).
 This is for plans, roadmaps, specs, and design docs, not ordinary code diffs.
 
 > Requires the `codex` CLI (`npm install -g @openai/codex`, then `codex login`).
@@ -39,7 +39,7 @@ python3 ~/.claude/skills/persona-registry/scripts/persona_registry.py --list
 
 ## Model & reasoning effort
 
-Defaults: **model `gpt-5.5`**, **reasoning effort `xhigh`**. To change (no reinstall): pass `--model` /
+Defaults: **model `gpt-5.6`**, **reasoning effort `xhigh`**. To change (no reinstall): pass `--model` /
 `--effort`, or edit `DEFAULT_MODEL` / `DEFAULT_EFFORT` at the top of the script.
 
 ## Workflow
