@@ -1,12 +1,12 @@
 ---
 name: claude-review
 targets: [codex]
-description: "Run an independent Claude Code review using Claude Opus 4.8 with max effort and tools enabled. Use when the user says 'claude review', 'run Claude on this', 'cross-model review', or wants a second-model review of a file, directory, branch, or uncommitted diff."
+description: "Run an independent Claude Code review using Claude Opus 5 with max effort and tools enabled. Use when the user says 'claude review', 'run Claude on this', 'cross-model review', or wants a second-model review of a file, directory, branch, or uncommitted diff."
 ---
 
 # Claude Review
 
-Independent code review using Claude Code, pinned to `claude-opus-4-8` with `--effort max`.
+Independent code review using Claude Code, pinned to `claude-opus-5` with `--effort max`.
 The runner is size-aware: it starts with the richest payload that fits, then automatically
 falls back to diff-only, per-file batching, or segmented single-file review when the scope is
 too large.
@@ -39,7 +39,7 @@ python3 ~/.codex/skills/claude-review/scripts/claude_review.py [scope]
    - collect the relevant git diff
    - include current file contents only when the payload is small enough
    - log review planning details to stderr
-   - call Claude Code with `--model claude-opus-4-8 --effort max --tools default --no-session-persistence --permission-mode auto`
+   - call Claude Code with `--model claude-opus-5 --effort max --tools default --no-session-persistence --permission-mode auto`
    - run Claude in stream-json mode by default and emit heartbeat/progress updates to stderr
    - write durable run artifacts under `~/.cache/agent-review-runs/`
    - retry in smaller modes on timeout
@@ -63,7 +63,7 @@ plus a findings table, or `No issues found.` when clean.
 
 ## Notes
 
-- Default model: `claude-opus-4-8`
+- Default model: `claude-opus-5`
 - Default effort: `max`
 - Allowed effort values: `low`, `medium`, `high`, `max`, `xhigh`
 - Default tools: `default`

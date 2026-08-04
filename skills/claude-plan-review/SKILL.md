@@ -1,12 +1,12 @@
 ---
 name: claude-plan-review
 targets: [codex]
-description: "Run an independent Claude Opus 4.8 plan review with tools enabled. Use for milestone roadmaps, implementation plans, architecture/design docs, specs, or planning artifacts before code is written; not for ordinary code diff review."
+description: "Run an independent Claude Opus 5 plan review with tools enabled. Use for milestone roadmaps, implementation plans, architecture/design docs, specs, or planning artifacts before code is written; not for ordinary code diff review."
 ---
 
 # Claude Plan Review
 
-Independent plan review using Claude Code, pinned to `claude-opus-4-8` with
+Independent plan review using Claude Code, pinned to `claude-opus-5` with
 `--effort max`, `--tools default`, and `--permission-mode auto`.
 
 ## Focus
@@ -81,7 +81,7 @@ plus a findings table and high-risk open questions.
 
 ## Notes
 
-- Default model: `claude-opus-4-8`
+- Default model: `claude-opus-5`
 - Default effort: `max`
 - Allowed effort values: `low`, `medium`, `high`, `max`, `xhigh`
 - Default tools: `default`
