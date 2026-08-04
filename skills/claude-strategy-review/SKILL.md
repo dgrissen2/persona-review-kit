@@ -1,12 +1,12 @@
 ---
 name: claude-strategy-review
 targets: [codex]
-description: "Run an independent Claude Opus 4.8 adversarial strategy and logic review with tools enabled and optional persona lenses. Use for strategy docs, research conclusions, optimizer proposals, risk frameworks, decision memos, plans, or arguments that need stress-testing; generic by default and not trading-specific."
+description: "Run an independent Claude Opus 5 adversarial strategy and logic review with tools enabled and optional persona lenses. Use for strategy docs, research conclusions, optimizer proposals, risk frameworks, decision memos, plans, or arguments that need stress-testing; generic by default and not trading-specific."
 ---
 
 # Claude Strategy Review
 
-Independent adversarial logic review using Claude Code, pinned to `claude-opus-4-8`
+Independent adversarial logic review using Claude Code, pinned to `claude-opus-5`
 with `--effort max`, `--tools default`, and `--permission-mode auto`.
 
 ## Focus
@@ -93,7 +93,7 @@ The script returns a generic review, optional persona reviews, and optional synt
 
 ## Notes
 
-- Default model: `claude-opus-4-8`
+- Default model: `claude-opus-5`
 - Default effort: `max`
 - Allowed effort values: `low`, `medium`, `high`, `max`, `xhigh`
 - Default tools: `default`

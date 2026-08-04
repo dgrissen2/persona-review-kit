@@ -33,7 +33,7 @@ def env_int(name: str, default: int) -> int:
         raise SystemExit(f"{name} must be an integer, got {raw!r}") from exc
 
 
-DEFAULT_MODEL = os.environ.get("CLAUDE_REVIEW_MODEL", "claude-opus-4-8")
+DEFAULT_MODEL = os.environ.get("CLAUDE_REVIEW_MODEL", "claude-opus-5")
 DEFAULT_EFFORT = os.environ.get("CLAUDE_REVIEW_EFFORT", "max")
 DEFAULT_TOOLS = os.environ.get("CLAUDE_REVIEW_TOOLS", "default")
 DEFAULT_PERMISSION_MODE = os.environ.get("CLAUDE_REVIEW_PERMISSION_MODE", "auto")

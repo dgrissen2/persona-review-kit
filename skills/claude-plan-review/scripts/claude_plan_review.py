@@ -69,7 +69,7 @@ except Exception as exc:  # noqa: BLE001
     _PERSONA_IMPORT_ERROR = exc
 
 
-DEFAULT_MODEL = os.environ.get("CLAUDE_PLAN_REVIEW_MODEL", "claude-opus-4-8")
+DEFAULT_MODEL = os.environ.get("CLAUDE_PLAN_REVIEW_MODEL", "claude-opus-5")
 DEFAULT_EFFORT = os.environ.get("CLAUDE_PLAN_REVIEW_EFFORT", "max")
 DEFAULT_TOOLS = os.environ.get("CLAUDE_PLAN_REVIEW_TOOLS", "default")
 DEFAULT_PERMISSION_MODE = os.environ.get("CLAUDE_PLAN_REVIEW_PERMISSION_MODE", "auto")

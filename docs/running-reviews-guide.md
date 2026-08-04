@@ -57,7 +57,7 @@ python3 ~/.codex/skills/claude-strategy-review/scripts/claude_strategy_review.py
   --personas quant,cio
 ```
 
-Claude defaults: model `claude-opus-4-8`, effort `max`, tools enabled, size-aware payloads with
+Claude defaults: model `claude-opus-5`, effort `max`, tools enabled, size-aware payloads with
 automatic fallback (diff-only → per-file → segmented). Override with the `CLAUDE_REVIEW_*` env vars
 documented in the skill's `SKILL.md`.
 
