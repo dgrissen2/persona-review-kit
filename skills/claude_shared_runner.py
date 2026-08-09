@@ -22,11 +22,11 @@ import subprocess
 import sys
 import time
 from collections import deque
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, TextIO
-
+from typing import TextIO
 
 DEFAULT_RUN_ROOT = Path.home() / ".cache" / "agent-review-runs"
 MAX_TAIL_LINES = 80
@@ -48,6 +48,53 @@ def env_positive_float(name: str, default: float) -> float:
 
 
 DEFAULT_HEARTBEAT_SEC = env_positive_float("CLAUDE_REVIEW_HEARTBEAT_SEC", 20.0)
+
+# Dynamic timeout knobs (shared by every claude-* wrapper):
+# the soft timeout is a budget that is always granted; once it is reached the deadline
+# keeps extending while the child is still producing output, until either the child
+# goes silent for DEFAULT_STALL_SEC or the hard cap is reached.
+DEFAULT_STALL_SEC = env_positive_float("CLAUDE_REVIEW_STALL_SEC", 300.0)
+DEFAULT_MAX_TIMEOUT_SEC = env_positive_float("CLAUDE_REVIEW_MAX_TIMEOUT_SEC", 3600.0)
+
+# Soft-timeout estimation: base thinking/tool budget plus a size term, scaled by effort.
+TIMEOUT_BASE_SEC = 240.0
+TIMEOUT_SEC_PER_10KB = 25.0
+TIMEOUT_MIN_SEC = 180.0
+TIMEOUT_EFFORT_MULTIPLIER = {
+    "low": 0.5,
+    "medium": 0.75,
+    "high": 1.0,
+    "xhigh": 1.5,
+    "max": 2.0,
+}
+
+
+def estimate_timeout_sec(
+    *,
+    workload_bytes: int,
+    effort: str,
+    max_timeout_sec: float = DEFAULT_MAX_TIMEOUT_SEC,
+) -> int:
+    """Estimate the soft timeout for one Claude attempt.
+
+    ``workload_bytes`` should approximate what the child has to digest: the prompt
+    payload plus any documents it will read via tools. Unknown efforts fall back to
+    a 1.0 multiplier. The result is clamped to [TIMEOUT_MIN_SEC, max_timeout_sec].
+    """
+    multiplier = TIMEOUT_EFFORT_MULTIPLIER.get(effort, 1.0)
+    estimate = (TIMEOUT_BASE_SEC + TIMEOUT_SEC_PER_10KB * max(workload_bytes, 0) / 10_000.0) * multiplier
+    return int(min(max(estimate, TIMEOUT_MIN_SEC), max_timeout_sec))
+
+
+def file_workload_bytes(paths: Iterable[Path]) -> int:
+    """Sum on-disk sizes for documents the child Claude will read via tools."""
+    total = 0
+    for path in paths:
+        try:
+            total += path.stat().st_size
+        except OSError:
+            continue
+    return total
 
 
 class ClaudeRunnerTimeout(RuntimeError):
@@ -82,11 +129,18 @@ def run_claude_with_progress(
     add_dirs: Iterable[Path] = (),
     stream: bool = True,
     heartbeat_sec: float = DEFAULT_HEARTBEAT_SEC,
+    stall_sec: float = DEFAULT_STALL_SEC,
+    max_timeout_sec: float = DEFAULT_MAX_TIMEOUT_SEC,
     safe_mode: bool = False,
     disable_slash_commands: bool = False,
     progress_stream: TextIO = sys.stderr,
 ) -> str:
     """Run Claude and return the final assistant text.
+
+    ``timeout_sec`` is a *soft* budget: it is always granted in full, and once it is
+    reached the deadline keeps extending while the child is still producing output.
+    The run is killed only when the child goes silent for ``stall_sec`` past the soft
+    budget, or when total elapsed time reaches ``max_timeout_sec`` (hard cap).
 
     Progress and diagnostics are written to ``progress_stream``; review content
     is returned to callers so existing wrapper output contracts remain stable.
@@ -95,6 +149,11 @@ def run_claude_with_progress(
         raise RuntimeError("timeout_sec must be positive")
     if not math.isfinite(heartbeat_sec) or heartbeat_sec <= 0:
         raise RuntimeError("heartbeat_sec must be a positive finite number")
+    if not math.isfinite(stall_sec) or stall_sec <= 0:
+        raise RuntimeError("stall_sec must be a positive finite number")
+    if not math.isfinite(max_timeout_sec) or max_timeout_sec <= 0:
+        raise RuntimeError("max_timeout_sec must be a positive finite number")
+    hard_cap_sec = max(float(timeout_sec), max_timeout_sec)
 
     artifacts = _create_artifacts(run_kind=run_kind, scope_label=scope_label, mode_label=mode_label)
     artifacts.prompt_path.write_text(prompt, encoding="utf-8")
@@ -108,6 +167,8 @@ def run_claude_with_progress(
             "tools": tools,
             "permission_mode": permission_mode,
             "timeout_sec": timeout_sec,
+            "stall_sec": stall_sec,
+            "hard_cap_sec": hard_cap_sec,
             "stream": stream,
             "safe_mode": safe_mode,
             "disable_slash_commands": disable_slash_commands,
@@ -130,7 +191,8 @@ def run_claude_with_progress(
         artifacts,
         (
             f"starting {run_kind} mode={mode_label} pid=? "
-            f"payload={_byte_len(prompt)}B timeout={timeout_sec}s"
+            f"payload={_byte_len(prompt)}B soft_timeout={timeout_sec}s "
+            f"stall={stall_sec:.0f}s hard_cap={hard_cap_sec:.0f}s"
         ),
     )
 
@@ -155,6 +217,9 @@ def run_claude_with_progress(
     old_handlers = _install_signal_cleanup(proc, artifacts, progress_stream)
     start = time.monotonic()
     deadline = start + timeout_sec
+    hard_deadline = start + hard_cap_sec
+    last_activity = start
+    extensions = 0
     last_heartbeat = start
     assistant_text_parts: list[str] = []
     final_result: str | None = None
@@ -177,7 +242,9 @@ def run_claude_with_progress(
         ) as stderr_file:
             while True:
                 now = time.monotonic()
-                if now >= deadline:
+                idle = now - last_activity
+                if now >= hard_deadline or (now >= deadline and idle >= stall_sec):
+                    reason = "hard_cap" if now >= hard_deadline else "stalled"
                     _write_timeout_diagnostics(proc, artifacts)
                     _terminate_process_group(proc, signal.SIGTERM)
                     time.sleep(2)
@@ -186,11 +253,46 @@ def run_claude_with_progress(
                     _emit_event(
                         artifacts,
                         "timeout",
-                        {"pid": proc.pid, "pgid": pgid, "elapsed_sec": round(now - start, 3)},
+                        {
+                            "pid": proc.pid,
+                            "pgid": pgid,
+                            "elapsed_sec": round(now - start, 3),
+                            "reason": reason,
+                            "idle_sec": round(idle, 3),
+                            "soft_timeout_sec": timeout_sec,
+                            "hard_cap_sec": hard_cap_sec,
+                            "extensions": extensions,
+                        },
                     )
                     raise ClaudeRunnerTimeout(
-                        f"Claude {run_kind} timed out after {timeout_sec}s in {mode_label}; "
+                        f"Claude {run_kind} timed out after {int(now - start)}s in {mode_label} "
+                        f"({reason}: soft={timeout_sec}s hard_cap={int(hard_cap_sec)}s "
+                        f"idle={int(idle)}s extensions={extensions}); "
                         f"artifacts: {artifacts.run_dir}"
+                    )
+
+                if now >= deadline:
+                    # Soft budget exhausted but the child produced output recently:
+                    # grant more time instead of killing a live, streaming run.
+                    deadline = min(now + stall_sec, hard_deadline)
+                    extensions += 1
+                    _emit_event(
+                        artifacts,
+                        "deadline_extended",
+                        {
+                            "extension": extensions,
+                            "idle_sec": round(idle, 3),
+                            "granted_sec": round(deadline - now, 1),
+                        },
+                    )
+                    _progress(
+                        progress_stream,
+                        artifacts,
+                        (
+                            f"soft timeout reached but output is still streaming; "
+                            f"extension #{extensions} grants {int(deadline - now)}s more "
+                            f"(hard cap {int(hard_cap_sec)}s)"
+                        ),
                     )
 
                 if now - last_heartbeat >= heartbeat_sec:
@@ -201,7 +303,7 @@ def run_claude_with_progress(
                         artifacts,
                         (
                             f"heartbeat pid={proc.pid} pgid={pgid} mode={mode_label} "
-                            f"elapsed={elapsed}s remaining={remaining}s "
+                            f"elapsed={elapsed}s remaining={remaining}s idle={int(idle)}s "
                             f"stdout_lines={len(stdout_tail)} stderr_lines={len(stderr_tail)}"
                         ),
                     )
@@ -221,6 +323,7 @@ def run_claude_with_progress(
                     if line == "":
                         selector.unregister(key.fileobj)
                         continue
+                    last_activity = time.monotonic()
                     if stream_name == "stdout":
                         stdout_file.write(line)
                         stdout_file.flush()

@@ -13,7 +13,13 @@ _SKILLS_ROOT = Path(__file__).resolve().parents[2]
 if str(_SKILLS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SKILLS_ROOT))
 
-from claude_shared_runner import ClaudeRunnerTimeout, env_positive_float, run_claude_with_progress
+from claude_shared_runner import (
+    ClaudeRunnerTimeout,
+    env_positive_float,
+    estimate_timeout_sec,
+    file_workload_bytes,
+    run_claude_with_progress,
+)
 
 
 def env_int(name: str, default: int) -> int:
@@ -61,7 +67,7 @@ if _registry_dir is not None:
     sys.path.insert(0, str(_registry_dir))
 
 try:  # personas are an optional overlay; only needed when actually requested
-    from persona_registry import Persona, parse_tokens, resolve_personas  # noqa: E402
+    from persona_registry import Persona, parse_tokens, resolve_personas
 
     _PERSONA_IMPORT_ERROR: Exception | None = None
 except Exception as exc:  # noqa: BLE001
@@ -70,10 +76,11 @@ except Exception as exc:  # noqa: BLE001
 
 
 DEFAULT_MODEL = os.environ.get("CLAUDE_STRATEGY_REVIEW_MODEL", "claude-opus-5")
-DEFAULT_EFFORT = os.environ.get("CLAUDE_STRATEGY_REVIEW_EFFORT", "max")
+DEFAULT_EFFORT = os.environ.get("CLAUDE_STRATEGY_REVIEW_EFFORT", "xhigh")
 DEFAULT_TOOLS = os.environ.get("CLAUDE_STRATEGY_REVIEW_TOOLS", "default")
 DEFAULT_PERMISSION_MODE = os.environ.get("CLAUDE_STRATEGY_REVIEW_PERMISSION_MODE", "auto")
-DEFAULT_TIMEOUT_SEC = env_int("CLAUDE_STRATEGY_REVIEW_TIMEOUT_SEC", 900)
+# 0 = auto-estimate the soft timeout per run from prompt + document sizes and effort.
+DEFAULT_TIMEOUT_SEC = env_int("CLAUDE_STRATEGY_REVIEW_TIMEOUT_SEC", 0)
 DEFAULT_HEARTBEAT_SEC = env_positive_float("CLAUDE_STRATEGY_REVIEW_HEARTBEAT_SEC", 20.0)
 EFFORT_CHOICES = ("low", "medium", "high", "xhigh", "max")
 PERMISSION_MODE_CHOICES = ("auto", "default", "dontAsk", "plan")
@@ -113,7 +120,16 @@ def parse_args() -> argparse.Namespace:
         choices=PERMISSION_MODE_CHOICES,
         help=f"Permission mode (default: {DEFAULT_PERMISSION_MODE}).",
     )
-    parser.add_argument("--timeout-sec", type=int, default=DEFAULT_TIMEOUT_SEC)
+    parser.add_argument(
+        "--timeout-sec",
+        type=int,
+        default=DEFAULT_TIMEOUT_SEC,
+        help=(
+            "Soft Claude timeout in seconds; 0 auto-estimates per run from prompt + "
+            "document sizes and effort. The deadline auto-extends while Claude is "
+            f"still streaming output, up to the hard cap (default: {DEFAULT_TIMEOUT_SEC})."
+        ),
+    )
     parser.add_argument("--no-stream", action="store_true", help="Disable stream-json progress mode.")
     parser.add_argument(
         "--heartbeat-sec",
@@ -130,6 +146,8 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     validate_choice(parser, "effort", args.effort, EFFORT_CHOICES)
     validate_choice(parser, "permission-mode", args.permission_mode, PERMISSION_MODE_CHOICES)
+    if args.timeout_sec < 0:
+        parser.error("argument --timeout-sec: must be >= 0 (0 = auto-estimate)")
     return args
 
 
@@ -313,8 +331,19 @@ def run_claude(
     add_dirs: list[Path],
     args: argparse.Namespace,
     mode_label: str,
+    doc_bytes: int = 0,
 ) -> str:
-    """Run Claude CLI through the shared progress/artifact runner."""
+    """Run Claude CLI through the shared progress/artifact runner.
+
+    ``doc_bytes`` approximates documents the child reads via tools (strategy +
+    context); it feeds the auto-estimated soft timeout when --timeout-sec is 0.
+    """
+    timeout_sec = args.timeout_sec
+    if timeout_sec <= 0:
+        timeout_sec = estimate_timeout_sec(
+            workload_bytes=len(prompt.encode("utf-8")) + doc_bytes,
+            effort=args.effort,
+        )
     try:
         return run_claude_with_progress(
             root=root,
@@ -323,7 +352,7 @@ def run_claude(
             effort=args.effort,
             tools=args.tools,
             permission_mode=args.permission_mode,
-            timeout_sec=args.timeout_sec,
+            timeout_sec=timeout_sec,
             run_kind="claude-strategy-review",
             scope_label="strategy-review",
             mode_label=mode_label,
@@ -369,13 +398,14 @@ def main() -> int:
         paths = [strategy_file, *context_files, *(Path(persona.path) for persona in personas)]
         add_dirs = add_dirs_for_paths(root, paths)
         fb = focus_block(args.intent, args.focus)
+        doc_bytes = file_workload_bytes([strategy_file, *context_files])
         outputs: list[tuple[str, str]] = []
         if not args.skip_generic:
             prompt = generic_prompt(strategy_file, context_files, focus=fb)
-            outputs.append(("Generic Logic", run_claude(root, prompt, add_dirs, args, "generic")))
+            outputs.append(("Generic Logic", run_claude(root, prompt, add_dirs, args, "generic", doc_bytes)))
         for persona in personas:
             prompt = persona_prompt(strategy_file, context_files, persona, focus=fb)
-            outputs.append((persona.name, run_claude(root, prompt, add_dirs, args, persona.name)))
+            outputs.append((persona.name, run_claude(root, prompt, add_dirs, args, persona.name, doc_bytes)))
         if not outputs:
             raise RuntimeError("nothing to run: --skip-generic requires at least one persona")
         if len(outputs) > 1 and not args.no_synthesis:

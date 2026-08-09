@@ -32,7 +32,7 @@ built-in guardrails make the reviews both honest and dependable:
 - **Can't be gamed** — the artifact under review is treated as data, never instructions; text buried in a diff can't talk the reviewer into a PASS.
 - **Focus without blind spots** — steer the review toward what matters; every CRITICAL and HIGH finding still surfaces.
 - **Read-only** — reviewers review; they never touch your files.
-- **Bounded and isolated** — each run has a timeout and a watchdog that stops only its own review, so it never runs away or disturbs other work.
+- **Bounded and isolated** — each run gets a size-aware timeout that auto-extends while the review is still streaming (stall watchdog + hard cap), and a watchdog that stops only its own review, so long reviews finish but nothing ever runs away or disturbs other work.
 - **Structured verdicts** — every review returns a clean PASS / CONDITIONAL PASS / FAIL plus a findings table you can act on or automate.
 
 ## Global personas

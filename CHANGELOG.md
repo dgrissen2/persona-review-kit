@@ -4,6 +4,24 @@ All notable changes to **persona-review-kit** are documented here. The format is
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Dynamic Claude timeouts** in `claude_shared_runner.py`: the soft timeout is estimated
+  upfront from workload size (payload plus documents read via tools) and effort, then the
+  deadline keeps extending while Claude is still streaming output. Runs are killed only on a
+  stall (`CLAUDE_REVIEW_STALL_SEC`, default 300s of silence past the soft budget) or at the
+  hard cap (`CLAUDE_REVIEW_MAX_TIMEOUT_SEC`, default 3600s). `--timeout-sec` /
+  `CLAUDE_*_TIMEOUT_SEC` now pin the soft budget (0 = auto-estimate).
+- Deadline-extension progress notices and richer heartbeats (elapsed / remaining / idle) on
+  stderr so the calling agent always sees liveness and never mistakes a long review for a
+  dead process.
+
+### Changed
+- `claude-review`, `claude-plan-review`, and `claude-strategy-review` now default to
+  `--effort xhigh` (model stays `claude-opus-5`), matching the Codex twins' `gpt-5.6` +
+  `xhigh` reasoning defaults.
+
 ## [0.1.0] - 2026-06-25
 
 Initial public release.
