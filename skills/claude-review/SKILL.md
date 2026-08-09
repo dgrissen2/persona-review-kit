@@ -1,12 +1,12 @@
 ---
 name: claude-review
 targets: [codex]
-description: "Run an independent Claude Code review using Claude Opus 5 with max effort and tools enabled. Use when the user says 'claude review', 'run Claude on this', 'cross-model review', or wants a second-model review of a file, directory, branch, or uncommitted diff."
+description: "Run an independent Claude Code review using Claude Opus 5 with xhigh effort and tools enabled. Use when the user says 'claude review', 'run Claude on this', 'cross-model review', or wants a second-model review of a file, directory, branch, or uncommitted diff."
 ---
 
 # Claude Review
 
-Independent code review using Claude Code, pinned to `claude-opus-5` with `--effort max`.
+Independent code review using Claude Code, pinned to `claude-opus-5` with `--effort xhigh`.
 The runner is size-aware: it starts with the richest payload that fits, then automatically
 falls back to diff-only, per-file batching, or segmented single-file review when the scope is
 too large.
@@ -39,7 +39,9 @@ python3 ~/.codex/skills/claude-review/scripts/claude_review.py [scope]
    - collect the relevant git diff
    - include current file contents only when the payload is small enough
    - log review planning details to stderr
-   - call Claude Code with `--model claude-opus-5 --effort max --tools default --no-session-persistence --permission-mode auto`
+   - estimate a soft timeout upfront from payload size and effort, then keep extending the
+     deadline while Claude is still streaming output (a stall watchdog and hard cap bound it)
+   - call Claude Code with `--model claude-opus-5 --effort xhigh --tools default --no-session-persistence --permission-mode auto`
    - run Claude in stream-json mode by default and emit heartbeat/progress updates to stderr
    - write durable run artifacts under `~/.cache/agent-review-runs/`
    - retry in smaller modes on timeout
@@ -64,13 +66,23 @@ plus a findings table, or `No issues found.` when clean.
 ## Notes
 
 - Default model: `claude-opus-5`
-- Default effort: `max`
+- Default effort: `xhigh`
 - Allowed effort values: `low`, `medium`, `high`, `max`, `xhigh`
 - Default tools: `default`
 - Default permission mode: `auto`
 - Allowed permission modes: `auto`, `default`, `dontAsk`, `plan`; edit-accepting and permission-bypass modes are intentionally rejected for review runs over untrusted code
 - Exit code `0` means the wrapper completed and emitted a review; callers must parse the `PASS` / `CONDITIONAL PASS` / `FAIL` verdict from stdout. Exit code `1` means wrapper/tooling failure.
-- Default timeout: `300` seconds
+- Default timeout: dynamic. The soft timeout is auto-estimated per attempt from payload size
+  and effort; past it, the deadline keeps extending while Claude is still streaming output.
+  The run is killed only when output stalls for `300`s past the soft budget
+  (`CLAUDE_REVIEW_STALL_SEC`) or total elapsed time hits the `3600`s hard cap
+  (`CLAUDE_REVIEW_MAX_TIMEOUT_SEC`). Pass `--timeout-sec N` (or `CLAUDE_REVIEW_TIMEOUT_SEC`)
+  to pin the soft budget instead of estimating it.
+- Liveness contract for the calling agent: the wrapper streams heartbeats, partial-output
+  progress, and deadline-extension notices to stderr at least every heartbeat interval
+  (default 20s). Treat those as proof the review is alive — do not impose a shorter outer
+  shell timeout and do not kill the process on brief silence; the wrapper enforces its own
+  watchdog and always exits on its own.
 - Default review mode is automatic: `full` → `diff-only` → `per-file` / `diff-segment`
 - Untracked file mode is automatic: `untracked-file` → `untracked-file-segment`
 - No-diff explicit file mode is automatic: `context-only` → `context-segment`
@@ -91,6 +103,8 @@ plus a findings table, or `No issues found.` when clean.
   - `CLAUDE_REVIEW_MAX_PAYLOAD_BYTES`
   - `CLAUDE_REVIEW_DIFF_ONLY_BYTES`
   - `CLAUDE_REVIEW_TIMEOUT_SEC`
+  - `CLAUDE_REVIEW_STALL_SEC`
+  - `CLAUDE_REVIEW_MAX_TIMEOUT_SEC`
   - `CLAUDE_REVIEW_SEGMENT_BYTES`
   - `CLAUDE_REVIEW_HEARTBEAT_SEC`
 

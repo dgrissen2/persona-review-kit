@@ -7,7 +7,7 @@ description: "Run an independent Claude Opus 5 plan review with tools enabled. U
 # Claude Plan Review
 
 Independent plan review using Claude Code, pinned to `claude-opus-5` with
-`--effort max`, `--tools default`, and `--permission-mode auto`.
+`--effort xhigh`, `--tools default`, and `--permission-mode auto`.
 
 ## Focus
 
@@ -38,6 +38,13 @@ stderr, and writes durable artifacts under `~/.cache/agent-review-runs/`.
 Each Claude attempt records `prompt.txt`, `stdout.stream`, `stderr.stream`,
 `events.jsonl`, `result.md`, and timeout diagnostics. On SIGINT/SIGTERM/timeout,
 the wrapper terminates only its own Claude process group.
+
+Timeouts are dynamic: the soft timeout is auto-estimated upfront from the prompt
+plus plan/context document sizes and effort, then the deadline keeps extending
+while Claude is still streaming output, bounded by a stall watchdog and a hard
+cap. Heartbeats, partial-output progress, and deadline-extension notices on
+stderr are the liveness signal — do not impose a shorter outer shell timeout or
+kill the process on brief silence; the wrapper always exits on its own.
 
 If Claude times out or the wrapper cannot complete, report `TOOLING FAILURE` with
 the artifact path. A tooling failure is not a `PASS`, `CONDITIONAL PASS`, or `FAIL`
@@ -82,18 +89,23 @@ plus a findings table and high-risk open questions.
 ## Notes
 
 - Default model: `claude-opus-5`
-- Default effort: `max`
+- Default effort: `xhigh`
 - Allowed effort values: `low`, `medium`, `high`, `max`, `xhigh`
 - Default tools: `default`
 - Default permission mode: `auto`
 - Allowed permission modes: `auto`, `default`, `dontAsk`, `plan`; edit-accepting and permission-bypass modes are intentionally rejected for review runs over untrusted plans/context
 - Exit code `0` means the wrapper completed and emitted a plan review; callers must parse the `PASS` / `CONDITIONAL PASS` / `FAIL` verdict from stdout. Exit code `1` means wrapper/tooling failure or invalid invocation.
 - Default heartbeat: `20` seconds
+- Default timeout: dynamic — soft budget auto-estimated from prompt + document sizes and
+  effort, deadline auto-extends while streaming, stall watchdog `300`s
+  (`CLAUDE_REVIEW_STALL_SEC`), hard cap `3600`s (`CLAUDE_REVIEW_MAX_TIMEOUT_SEC`). Pass
+  `--timeout-sec N` (or `CLAUDE_PLAN_REVIEW_TIMEOUT_SEC`) to pin the soft budget instead.
 - Troubleshooting flags: `--no-stream`, `--heartbeat-sec N`, `--safe-mode`,
   `--disable-slash-commands`
 - Override with `CLAUDE_PLAN_REVIEW_MODEL`, `CLAUDE_PLAN_REVIEW_EFFORT`,
   `CLAUDE_PLAN_REVIEW_TOOLS`, `CLAUDE_PLAN_REVIEW_PERMISSION_MODE`,
-  `CLAUDE_PLAN_REVIEW_TIMEOUT_SEC`, or `CLAUDE_PLAN_REVIEW_HEARTBEAT_SEC`.
+  `CLAUDE_PLAN_REVIEW_TIMEOUT_SEC`, `CLAUDE_PLAN_REVIEW_HEARTBEAT_SEC`, or the shared
+  runner watchdog vars `CLAUDE_REVIEW_STALL_SEC` / `CLAUDE_REVIEW_MAX_TIMEOUT_SEC`.
 
 ## Intent and focus (automatic)
 

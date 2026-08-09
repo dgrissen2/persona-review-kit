@@ -57,9 +57,13 @@ python3 ~/.codex/skills/claude-strategy-review/scripts/claude_strategy_review.py
   --personas quant,cio
 ```
 
-Claude defaults: model `claude-opus-5`, effort `max`, tools enabled, size-aware payloads with
-automatic fallback (diff-only → per-file → segmented). Override with the `CLAUDE_REVIEW_*` env vars
-documented in the skill's `SKILL.md`.
+Claude defaults: model `claude-opus-5`, effort `xhigh`, tools enabled, size-aware payloads with
+automatic fallback (diff-only → per-file → segmented). Timeouts are dynamic: a soft budget is
+estimated upfront from workload size and effort, then the deadline keeps extending while Claude is
+still streaming output — killed only after `300`s of silence past the budget
+(`CLAUDE_REVIEW_STALL_SEC`) or at the `3600`s hard cap (`CLAUDE_REVIEW_MAX_TIMEOUT_SEC`). Override
+with the `CLAUDE_REVIEW_*` env vars documented in the skill's `SKILL.md`; set
+`CLAUDE_*_TIMEOUT_SEC` to pin a fixed soft budget instead of estimating.
 
 ## Focusing a review (optional intent / focus)
 

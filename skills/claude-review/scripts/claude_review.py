@@ -17,7 +17,10 @@ if str(_SKILLS_ROOT) not in sys.path:
 
 from claude_shared_runner import (
     DEFAULT_HEARTBEAT_SEC as DEFAULT_RUNNER_HEARTBEAT_SEC,
+)
+from claude_shared_runner import (
     ClaudeRunnerTimeout,
+    estimate_timeout_sec,
     run_claude_with_progress,
 )
 
@@ -34,13 +37,14 @@ def env_int(name: str, default: int) -> int:
 
 
 DEFAULT_MODEL = os.environ.get("CLAUDE_REVIEW_MODEL", "claude-opus-5")
-DEFAULT_EFFORT = os.environ.get("CLAUDE_REVIEW_EFFORT", "max")
+DEFAULT_EFFORT = os.environ.get("CLAUDE_REVIEW_EFFORT", "xhigh")
 DEFAULT_TOOLS = os.environ.get("CLAUDE_REVIEW_TOOLS", "default")
 DEFAULT_PERMISSION_MODE = os.environ.get("CLAUDE_REVIEW_PERMISSION_MODE", "auto")
 DEFAULT_MAX_FILES = env_int("CLAUDE_REVIEW_MAX_FILES", 15)
 DEFAULT_MAX_PAYLOAD_BYTES = env_int("CLAUDE_REVIEW_MAX_PAYLOAD_BYTES", 100_000)
 DEFAULT_DIFF_ONLY_BYTES = env_int("CLAUDE_REVIEW_DIFF_ONLY_BYTES", 50_000)
-DEFAULT_TIMEOUT_SEC = env_int("CLAUDE_REVIEW_TIMEOUT_SEC", 300)
+# 0 = auto-estimate the soft timeout per attempt from payload size and effort.
+DEFAULT_TIMEOUT_SEC = env_int("CLAUDE_REVIEW_TIMEOUT_SEC", 0)
 DEFAULT_SEGMENT_BYTES = env_int("CLAUDE_REVIEW_SEGMENT_BYTES", 35_000)
 DEFAULT_HEARTBEAT_SEC = DEFAULT_RUNNER_HEARTBEAT_SEC
 
@@ -238,7 +242,11 @@ def parse_args() -> argparse.Namespace:
         "--timeout-sec",
         type=int,
         default=DEFAULT_TIMEOUT_SEC,
-        help=f"Claude subprocess timeout in seconds (default: {DEFAULT_TIMEOUT_SEC}).",
+        help=(
+            "Soft Claude timeout in seconds; 0 auto-estimates per attempt from payload "
+            "size and effort. The deadline auto-extends while Claude is still streaming "
+            f"output, up to the hard cap (default: {DEFAULT_TIMEOUT_SEC})."
+        ),
     )
     parser.add_argument(
         "--segment-bytes",
@@ -284,6 +292,8 @@ def parse_args() -> argparse.Namespace:
         args.permission_mode,
         PERMISSION_MODE_CHOICES,
     )
+    if args.timeout_sec < 0:
+        parser.error("argument --timeout-sec: must be >= 0 (0 = auto-estimate)")
     return args
 
 
@@ -925,8 +935,17 @@ def run_batch(
 ) -> list[str]:
     """Run one batch, degrading on timeout when possible."""
     payload = build_payload(batch)
+    payload_bytes = byte_len(payload)
+    # timeout_sec <= 0 means auto: estimate this attempt's soft budget from its own
+    # payload, so retries in smaller modes automatically get proportional budgets.
+    attempt_timeout_sec = (
+        timeout_sec
+        if timeout_sec > 0
+        else estimate_timeout_sec(workload_bytes=payload_bytes, effort=effort)
+    )
     log(
-        f"running mode={batch.mode} scope={batch.scope_label} payload_bytes={byte_len(payload)}"
+        f"running mode={batch.mode} scope={batch.scope_label} payload_bytes={payload_bytes} "
+        f"soft_timeout={attempt_timeout_sec}s{'' if timeout_sec > 0 else ' (auto)'}"
     )
     try:
         return [
@@ -937,7 +956,7 @@ def run_batch(
                 effort,
                 tools,
                 permission_mode,
-                timeout_sec,
+                attempt_timeout_sec,
                 scope_label=batch.scope_label,
                 mode_label=batch.mode,
                 stream=stream,
@@ -1133,9 +1152,7 @@ def aggregate_reviews(
         )
     )
 
-    if not parsed:
-        overall_verdict = "FAIL"
-    elif any(review.verdict == "FAIL" for review in parsed):
+    if not parsed or any(review.verdict == "FAIL" for review in parsed):
         overall_verdict = "FAIL"
     elif findings or any(review.verdict == "CONDITIONAL PASS" for review in parsed):
         overall_verdict = "CONDITIONAL PASS"
