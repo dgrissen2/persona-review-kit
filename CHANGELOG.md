@@ -19,8 +19,12 @@ All notable changes to **persona-review-kit** are documented here. The format is
 
 ### Changed
 - `claude-review`, `claude-plan-review`, and `claude-strategy-review` now default to
-  `--effort xhigh` (model stays `claude-opus-5`), matching the Codex twins' `gpt-5.6` +
-  `xhigh` reasoning defaults.
+  `--effort xhigh` (model stays `claude-opus-5`), matching the Codex twins' `xhigh`
+  reasoning defaults.
+- Codex twins now default to the explicit model ID `gpt-5.6-sol` (was the bare `gpt-5.6`
+  alias). The Codex CLI validates against the account's model list, which exposes only the
+  explicit ID during the Sol preview, so the alias failed at dispatch; the API-side alias
+  still routes to Sol, and `--model` / `CODEX_MODEL` overrides are unchanged.
 
 ## [0.1.0] - 2026-06-25
 
