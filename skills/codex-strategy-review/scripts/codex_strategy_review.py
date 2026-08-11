@@ -43,10 +43,9 @@ _registry_dir = _find_persona_registry()
 if _registry_dir is not None:
     sys.path.insert(0, str(_registry_dir))
 
-from persona_registry import Persona, parse_tokens, resolve_personas  # noqa: E402
+from persona_registry import Persona, parse_tokens, resolve_personas
 
-
-DEFAULT_MODEL = "gpt-5.6"
+DEFAULT_MODEL = "gpt-5.6-sol"
 DEFAULT_EFFORT = "xhigh"
 
 
