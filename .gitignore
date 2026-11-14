@@ -21,3 +21,4 @@ venv/
 *_plan_review.md
 *_strategy_review.md
 *_panel_synthesis.md
+*.stream.log
