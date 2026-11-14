@@ -17,14 +17,45 @@ All notable changes to **persona-review-kit** are documented here. The format is
   stderr so the calling agent always sees liveness and never mistakes a long review for a
   dead process.
 
+- **Codex web search** via `CODEX_SEARCH=1` (adds Codex's `--search`; off by default for
+  reproducible reviews) in `codex-review`, `codex-plan-review`, and `codex-strategy-review`.
+- **Codex heartbeats**: all three codex skills print `still running: elapsed / idle` to stderr every
+  `CODEX_HEARTBEAT_SEC` (default 20 s) while Codex thinks silently.
+- `codex-review` now streams Codex's progress live to stderr and a `0600` log file, matching the
+  plan/strategy skills.
+
+### Fixed
+- **Stale reviews can no longer pass as fresh.** `codex-plan-review` / `codex-strategy-review`
+  delete the previous output file before running; before, a Codex dispatch failure (e.g.
+  `model_not_found`) returned the *previous* run's review with exit 0.
+- **`codex-review` failures are visible.** A watchdog kill exits `124`, an empty review exits
+  non-zero (Codex's code, else `1`), and a non-numeric `CODEX_TIMEOUT` / `CODEX_HEARTBEAT_SEC`
+  exits `2` up front (it used to silently disable the watchdog). Previously every case exited 0.
+- Interrupts (Ctrl-C / SIGTERM) now terminate the Codex process group (Python twins) or Codex
+  and its child processes (`codex-review`); before, Codex and its MCP servers were orphaned.
+  The watchdog also kills Codex's direct children, scoped by PID/PPID (never by name).
+- Progress logs are created `0600` (the Python twins used the default umask) and `*.stream.log`
+  is gitignored; the log echoes the full review payload, so it must not be world-readable or
+  committed.
+- `codex-plan-review` and `codex-strategy-review` now send the prompt to Codex on **stdin**
+  (and close it) instead of as a command-line argument. This fixes a hang where a caller that
+  left stdin open (an agent harness, cron, a backgrounded job) made `codex exec` sit on
+  "Reading additional input from stdin..." until the watchdog killed it after 300 s, and it keeps
+  the reviewed artifact out of `ps` output and out of the OS argument-size limit.
+- Codex twins no longer pass `--full-auto` (dropped by Codex CLI ≥ 0.153, which made every run fail
+  at dispatch); they now run `--sandbox read-only`. `codex-review` previously ran with the user's
+  Codex default sandbox and is now explicitly read-only.
+
 ### Changed
+- `codex-review` timeout (`CODEX_TIMEOUT`, default 300 s) is now an inactivity cap, like the
+  plan/strategy skills, instead of a fixed wall-clock limit.
 - `claude-review`, `claude-plan-review`, and `claude-strategy-review` now default to
   `--effort xhigh` (model stays `claude-opus-5`), matching the Codex twins' `xhigh`
   reasoning defaults.
-- Codex twins now default to the explicit model ID `gpt-5.6-sol` (was the bare `gpt-5.6`
-  alias). The Codex CLI validates against the account's model list, which exposes only the
-  explicit ID during the Sol preview, so the alias failed at dispatch; the API-side alias
-  still routes to Sol, and `--model` / `CODEX_MODEL` overrides are unchanged.
+- Codex twins (`codex-review`, `codex-plan-review`, `codex-strategy-review`) now all default
+  to the explicit model ID `gpt-6.1-sol` (was the bare `gpt-5.6` alias, then `gpt-5.6-sol`).
+  The Codex CLI validates against the account's model list, which exposes only explicit IDs,
+  so bare aliases fail at dispatch. `--model` / `CODEX_MODEL` overrides are unchanged.
 
 ## [0.1.0] - 2026-06-25
 

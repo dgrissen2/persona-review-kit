@@ -45,7 +45,7 @@ if _registry_dir is not None:
 
 from persona_registry import Persona, parse_tokens, resolve_personas
 
-DEFAULT_MODEL = "gpt-5.6-sol"
+DEFAULT_MODEL = "gpt-6.1-sol"
 DEFAULT_EFFORT = "xhigh"
 
 
@@ -255,44 +255,112 @@ List material conflicts between reviewers, or write `None`.
 
 
 def run_codex(prompt: str, output_file: Path, model: str, effort: str) -> str:
-    """Run Codex and return the output file contents."""
+    """Run Codex, streaming its progress to <output_file>.stream.log and stderr as it arrives.
+
+    Bounded by INACTIVITY, not total time: CODEX_TIMEOUT (default 300s) is the longest the run may go
+    with NO new output before it is killed. A run that keeps streaming events is working and is left
+    alone. While Codex is silent, a heartbeat prints to stderr every CODEX_HEARTBEAT_SEC (default 20s).
+    Process-group-scoped: only this invocation's group is killed (on idle, Ctrl-C, or SIGTERM);
+    concurrent codex runs from other sessions are untouched.
+    """
+    import threading
+    import time
+
     output_file.parent.mkdir(parents=True, exist_ok=True)
-    # Bounded + process-group-scoped: launch codex in its OWN session/process group and, on
-    # timeout, kill ONLY that group (os.killpg) — never `codex` by name — so concurrent codex
-    # runs from other agents/sessions are left untouched. Timeout: CODEX_TIMEOUT env (default 300s).
-    timeout = int(os.environ.get("CODEX_TIMEOUT", "300"))
+    idle_limit = int(os.environ.get("CODEX_TIMEOUT", "300"))
+    heartbeat_sec = max(1.0, float(os.environ.get("CODEX_HEARTBEAT_SEC", "20")))
+    # A leftover review from an earlier run must never be mistaken for this run's result
+    # (codex failing at dispatch, e.g. model_not_found, would otherwise "succeed" with stale text).
+    output_file.unlink(missing_ok=True)
+    stream_log = output_file.with_suffix(output_file.suffix + ".stream.log")
+    cmd = ["codex"]
+    if os.environ.get("CODEX_SEARCH", "").lower() in ("1", "true", "yes"):
+        cmd.append("--search")   # global flag: must precede `exec`; off by default so reviews stay reproducible
+    cmd += [
+        "exec",
+        "-m",
+        model,
+        "-c",
+        f"model_reasoning_effort={effort}",
+        "--sandbox",
+        "read-only",             # codex >= 0.153 dropped --full-auto; a review only reads
+        "-o",
+        str(output_file),
+        "-",                     # prompt arrives on stdin: keeps the artifact out of argv (visible to `ps`, bounded by ARG_MAX)
+    ]
     proc = subprocess.Popen(
-        [
-            "codex",
-            "exec",
-            "-m",
-            model,
-            "-c",
-            f"model_reasoning_effort={effort}",
-            "--full-auto",
-            "-o",
-            str(output_file),
-            "--",
-            prompt,
-        ],
+        cmd,
         text=True,
+        stdin=subprocess.PIPE,      # we own stdin and close it after the prompt; an inherited open stdin would make codex wait forever
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
         start_new_session=True,
     )
-    try:
-        stdout, stderr = proc.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
+    last = [time.monotonic()]
+    lines: list[str] = []
+
+    def _kill_group() -> None:
         try:
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)  # this invocation's group ONLY
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
             pass
-        proc.communicate()
-        raise RuntimeError(
-            f"codex exec exceeded {timeout}s (killed its process group; other codex runs untouched)"
-        )
+
+    def _pump() -> None:
+        # The stream echoes the full prompt (artifact + personas): keep it owner-only.
+        fd = os.open(stream_log, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            for line in proc.stdout:                      # type: ignore[union-attr]
+                last[0] = time.monotonic()
+                lines.append(line)
+                fh.write(line)
+                fh.flush()
+                sys.stderr.write(line)
+                sys.stderr.flush()
+
+    def _feed() -> None:
+        try:
+            proc.stdin.write(prompt)                      # type: ignore[union-attr]
+            proc.stdin.close()                            # type: ignore[union-attr]
+        except (BrokenPipeError, OSError):
+            pass                                          # codex exited early; its error is in the stream
+
+    t = threading.Thread(target=_pump, daemon=True)
+    t.start()
+    threading.Thread(target=_feed, daemon=True).start()
+    prev_term = signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))  # so `finally` cleanup runs
+    try:
+        started = time.monotonic()
+        next_beat = started + heartbeat_sec
+        while proc.poll() is None:
+            now = time.monotonic()
+            idle = now - last[0]
+            if now >= next_beat:
+                next_beat = now + heartbeat_sec
+                if idle >= heartbeat_sec:   # codex is thinking silently: prove we are alive
+                    print(
+                        f"[codex] still running: elapsed {now - started:.0f}s, idle {idle:.0f}s "
+                        f"(killed after {idle_limit}s idle); stream: {stream_log}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+            if idle > idle_limit:
+                _kill_group()
+                proc.wait()
+                raise RuntimeError(
+                    f"codex exec produced no output for {idle_limit}s (killed its process group; "
+                    f"stream in {stream_log})"
+                )
+            time.sleep(2)
+    finally:
+        if proc.poll() is None:      # Ctrl-C / SIGTERM / any error: never orphan the codex group
+            _kill_group()
+            proc.wait()
+        signal.signal(signal.SIGTERM, prev_term)
+    t.join(timeout=5)
     if not output_file.is_file() or output_file.stat().st_size == 0:
-        raise RuntimeError(stderr.strip() or stdout.strip() or "codex exec produced no output")
+        tail = "".join(lines[-20:]).strip()
+        raise RuntimeError(tail or "codex exec produced no output")
     return output_file.read_text(encoding="utf-8")
 
 

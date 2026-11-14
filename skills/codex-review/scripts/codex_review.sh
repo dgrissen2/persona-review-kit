@@ -7,13 +7,17 @@
 #   codex_review.sh path/to/file.py    # Review specific file
 #
 # Environment:
-#   CODEX_MODEL        Override model (default: gpt-5.6-sol)
+#   CODEX_MODEL        Override model (default: gpt-6.1-sol)
 #   CODEX_EFFORT       Override reasoning effort (default: xhigh)
 #   CODEX_MAX_FILES    Max files before truncating to diff-only (default: 15)
+#   CODEX_BASE         Base ref for 'branch' mode (default: main), e.g. a milestone tag
+#   CODEX_TIMEOUT      Inactivity cap in seconds: killed only after this long with no output (default: 300)
+#   CODEX_HEARTBEAT_SEC  Print a "still running" line after this much silence (default: 20)
+#   CODEX_SEARCH       1/true/yes enables Codex live web search (default: off, for reproducible reviews)
 
 set -euo pipefail
 
-MODEL="${CODEX_MODEL:-gpt-5.6-sol}"
+MODEL="${CODEX_MODEL:-gpt-6.1-sol}"
 EFFORT="${CODEX_EFFORT:-xhigh}"
 MAX_FILES="${CODEX_MAX_FILES:-15}"
 INTENT="${CODEX_INTENT:-}"      # optional: what this change is trying to achieve
@@ -31,9 +35,10 @@ trap 'rm -f "$CODEX_INPUT"' EXIT
 
 case "$MODE" in
     branch)
-        DIFF=$(git diff main...HEAD 2>/dev/null || git diff HEAD)
-        CHANGED=$(git diff main...HEAD --name-only 2>/dev/null | grep '\.py$' || true)
-        SCOPE="branch changes vs main"
+        BASE="${CODEX_BASE:-main}"   # optional: review a range, e.g. CODEX_BASE=identity-M0
+        DIFF=$(git diff "$BASE"...HEAD 2>/dev/null || git diff HEAD)
+        CHANGED=$(git diff "$BASE"...HEAD --name-only 2>/dev/null | grep '\.py$' || true)
+        SCOPE="branch changes vs $BASE"
         ;;
     uncommitted)
         DIFF=$(git diff HEAD)
@@ -147,20 +152,93 @@ No issues found.
     fi
 } > "$CODEX_INPUT"
 
-# Bounded by a watchdog that terminates ONLY this invocation's codex child (by its PID) —
-# never `pkill codex` / by name — so concurrent codex runs from other agents are untouched.
-# (macOS has no `timeout` binary, hence the explicit PID-scoped watchdog.)
+# Progress: codex's progress stream (stderr) is tee'd live to the terminal AND to a 0600 log you can
+# `tail -f`; stdout stays the final review only. Bounded by INACTIVITY, not total time: the watchdog
+# kills ONLY this invocation's codex child (by PID, plus its direct children — never `pkill codex`, so
+# concurrent runs are untouched) when the log has been silent for CODEX_TIMEOUT seconds, and prints a
+# heartbeat to stderr whenever it has been silent for CODEX_HEARTBEAT_SEC. (macOS has no `timeout`.)
 CODEX_TIMEOUT="${CODEX_TIMEOUT:-300}"
+CODEX_HEARTBEAT_SEC="${CODEX_HEARTBEAT_SEC:-20}"
+# Fail fast: a non-numeric value would make the watchdog subshell die and leave codex unbounded.
+for _v in CODEX_TIMEOUT CODEX_HEARTBEAT_SEC; do
+    case "${!_v}" in
+        ''|*[!0-9]*) echo "[codex-review] ERROR: $_v must be a non-negative integer (got '${!_v}')" >&2; exit 2 ;;
+    esac
+done
+STREAM_LOG="$(mktemp "${TMPDIR:-/tmp}/codex_review_stream.XXXXXX")"   # mktemp creates it 0600
+CODEX_OUT="$(mktemp "${TMPDIR:-/tmp}/codex_review_out.XXXXXX")"
+KILLED_FLAG="${STREAM_LOG}.killed"
+echo "[codex-review] progress stream: $STREAM_LOG  (tail -f it; killed only after ${CODEX_TIMEOUT}s of silence)" >&2
+echo "[codex-review] note: the stream echoes the full review payload (diff + files); delete it when done" >&2
+
+# --sandbox read-only: a review only reads (codex >= 0.153 dropped --full-auto).
+# --search is a global flag (must precede `exec`) and is off by default so reviews stay reproducible.
+CODEX_CMD=(codex)
+case "$(printf '%s' "${CODEX_SEARCH:-}" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes) CODEX_CMD+=(--search) ;;
+esac
+CODEX_CMD+=(exec -m "$MODEL" -c "model_reasoning_effort=$EFFORT" --sandbox read-only -)
+
+file_mtime() { if [ "$(uname)" = "Darwin" ]; then stat -f %m "$1"; else stat -c %Y "$1"; fi; }
+
+# Terminate THIS run's codex (and its direct children, e.g. MCP servers) — scoped by PID/PPID only.
+CODEX_PID=""
+kill_codex() {
+    [ -n "$CODEX_PID" ] || return 0
+    pkill -TERM -P "$CODEX_PID" 2>/dev/null || true
+    kill -TERM "$CODEX_PID" 2>/dev/null || true
+    sleep 3
+    pkill -KILL -P "$CODEX_PID" 2>/dev/null || true
+    kill -KILL "$CODEX_PID" 2>/dev/null || true
+}
+
 CODEX_EXIT=0
-codex exec -m "$MODEL" -c "model_reasoning_effort=$EFFORT" - < "$CODEX_INPUT" &
+WATCH_PID=""
+cleanup() { rm -f "$CODEX_INPUT" "$CODEX_OUT" "$KILLED_FLAG"; }
+interrupted() {  # Ctrl-C / SIGTERM from the caller: never orphan codex or the watchdog
+    [ -n "$WATCH_PID" ] && kill "$WATCH_PID" 2>/dev/null || true
+    kill_codex
+    exit 130
+}
+trap cleanup EXIT
+trap interrupted INT TERM
+
+"${CODEX_CMD[@]}" < "$CODEX_INPUT" > "$CODEX_OUT" 2> >(tee "$STREAM_LOG" >&2) &
 CODEX_PID=$!
-( sleep "$CODEX_TIMEOUT"; kill -TERM "$CODEX_PID" 2>/dev/null; sleep 3; kill -KILL "$CODEX_PID" 2>/dev/null ) &
+(
+    start=$(date +%s); last_beat=$start
+    while kill -0 "$CODEX_PID" 2>/dev/null; do
+        sleep 5
+        now=$(date +%s); mtime=$(file_mtime "$STREAM_LOG" 2>/dev/null) || mtime=$now
+        idle=$(( now - mtime ))
+        if [ "$idle" -gt "$CODEX_TIMEOUT" ]; then
+            echo "[codex-review] no output for ${idle}s (> ${CODEX_TIMEOUT}s); terminating codex" >&2
+            : > "$KILLED_FLAG"
+            kill_codex
+            break
+        fi
+        if [ "$idle" -ge "$CODEX_HEARTBEAT_SEC" ] && [ $(( now - last_beat )) -ge "$CODEX_HEARTBEAT_SEC" ]; then
+            echo "[codex-review] still running: elapsed $(( now - start ))s, idle ${idle}s (killed after ${CODEX_TIMEOUT}s idle)" >&2
+            last_beat=$now
+        fi
+    done
+) &
 WATCH_PID=$!
 wait "$CODEX_PID" 2>/dev/null || CODEX_EXIT=$?
-kill "$WATCH_PID" 2>/dev/null; wait "$WATCH_PID" 2>/dev/null   # cancel watchdog if codex finished first
+kill "$WATCH_PID" 2>/dev/null || true; wait "$WATCH_PID" 2>/dev/null || true   # cancel watchdog if codex finished first (|| true: a killed child's 143 must not trip set -e)
+sleep 0.3                                                      # let the tee drain the last progress lines
 
-# codex exec may return non-zero even on successful completion.
-# If we got this far and produced output, treat as success.
-if [[ $CODEX_EXIT -ne 0 ]]; then
-    echo "[codex-review] Warning: codex exec exited with code $CODEX_EXIT (may be benign)" >&2
+# A killed or failed run must NOT look like a successful review: surface a non-zero exit.
+if [ -e "$KILLED_FLAG" ]; then
+    echo "[codex-review] FAILED: codex was terminated after ${CODEX_TIMEOUT}s without output (stream: $STREAM_LOG)" >&2
+    exit 124
+fi
+if [ ! -s "$CODEX_OUT" ]; then
+    echo "[codex-review] FAILED: codex produced no review (exit $CODEX_EXIT; stream: $STREAM_LOG)" >&2
+    exit "$([ "$CODEX_EXIT" -ne 0 ] && echo "$CODEX_EXIT" || echo 1)"
+fi
+cat "$CODEX_OUT"
+# codex exec may return non-zero even on successful completion; with output present, treat as success.
+if [ "$CODEX_EXIT" -ne 0 ]; then
+    echo "[codex-review] Warning: codex exec exited with code $CODEX_EXIT but produced output (may be benign)" >&2
 fi
